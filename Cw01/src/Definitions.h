@@ -8,10 +8,11 @@
 #define CLIENTS_MAX_NO 20
 #define CLIENTS_MAX_NAMELEN 32
 #define EVENTS_MAX_AMOUNT 10
+#define MAX_MSG_LEN 64
 
 //communication ways
 #define MAX_PATH_LEN 104  //for unix 108 in fact, working on macos
-
+#define OP_MSG_LEN 10
 
 struct Client{
   int sock_fd;

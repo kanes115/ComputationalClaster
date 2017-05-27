@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
 
 
 
@@ -25,6 +26,11 @@ char path[MAX_PATH_LEN];
 
 int local_socket, net_socket;
 int backlog = 5;
+
+//klienci
+struct Client* clients[CLIENTS_MAX_NO];
+int clientsCounter = 0;
+pthread_mutex_t clients_mutex = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 //***
 
 //Parse
@@ -77,7 +83,6 @@ static int make_socket_non_blocking(int sfd){
 }
 
 
-
 int prepareSocket(int sockType){
   struct sockaddr_in serv_addr;
   int listenfd;
@@ -95,6 +100,96 @@ int prepareSocket(int sockType){
 //***
 
 
+
+
+//Serializing
+void writeInt(void* buf, int a){
+  bytes[0] = (n >> 24) & 0xFF;
+  bytes[1] = (n >> 16) & 0xFF;
+  bytes[2] = (n >> 8) & 0xFF;
+  bytes[3] = n & 0xFF;
+}
+
+void pingMsg(void* buf){
+  buf[0] = (byte) 0;
+}
+
+void registerMsg(void* buf, int wasOk){
+  if(wasOk == 1)
+    buf[0] = (byte) 1;
+  else
+    buf[1] = (byte) 2;
+}
+
+void operationMsg(void* buf, struct Operation op){
+  buf[0] = (byte) 3;
+  void* buftmp = buf + 1;
+  writeInt(buftmp, op.arg1);
+  void* buftmp += 4;
+  writeInt(buftmp, op.arg2);
+  void* buftmp += 4;
+  buftmp[0] = op.op;
+}
+//***
+
+
+
+//Client menaging
+void addClient(struct Client cl){
+  pthread_mutex_lock(&clients_mutex);
+  clients[clientsCounter++] = cl;
+  pthread_mutex_unlock(&clients_mutex);
+}
+
+void sendToClient(struct Operation op){
+  pthread_mutex_lock(&clients_mutex);
+  if(clientsCounter == 0)
+    return;
+
+  int cl_no = rand()%clientsCounter;
+  void* buf = malloc(MAX_MSG_LEN);
+  operationMsg(buf, op);
+
+  write(client[cl_no]->sock_fd, buf, OP_MSG_LEN);
+  pthread_mutex_unlock(&clients_mutex);
+}
+//***
+
+
+
+
+
+
+void serveDataMsg(int source_fd){
+  ssize_t count;
+  void* buf = malloc(MAX_MSG_LEN);
+
+  count = read (source_fd, buf, sizeof buf);
+
+  int type = buf[0];
+
+  buf += 1;
+  short len = 0;
+  len = buf[0] << 8;
+  len += buf[1];
+  buf += 2;
+  char* res = (char*) buf;
+  buf += len;
+  buf[0] = '\0';
+
+
+  if(type == 1){    //rejestrujemy
+    struct Client *cl = malloc(sizeof Client);
+    cl->sock_fd = source_fd;
+    strcpy(cl->name, res);
+    return;
+  }
+  if(type == 3){
+    printf("%s\n", res);
+    return;
+  }
+
+}
 
 
 
@@ -176,77 +271,19 @@ void* listenOnSockets(){
                  completely, as we are running in edge-triggered mode
                  and won't get a notification again for the same
                  data. */
-              int done = 0;
+                 serveDataMsg(events[i].data.fd);
 
-              while (1){
-                  ssize_t count;
-                  char buf[512];
-
-                  count = read (events[i].data.fd, buf, sizeof buf);
-                  if (count == -1)
-                    {
-                      /* If errno == EAGAIN, that means we have read all
-                         data. So go back to the main loop. */
-                      if (errno != EAGAIN)
-                        {
-                          perror ("read");
-                          done = 1;
-                        }
-                      break;
-                    }
-                  else if (count == 0)
-                    {
-                      /* End of file. The remote has closed the
-                         connection. */
-                      done = 1;
-                      break;
-                    }
-
-                  /* Write the buffer to standard output */
-                  s = write (1, buf, count);
-                  if (s == -1)
-                    {
-                      perror ("write");
-                      abort ();
-                    }
-                }
-
-              if (done)
-                {
-                  printf ("Closed connection on descriptor %d\n",
-                          events[i].data.fd);
-
-                  /* Closing the descriptor will make epoll remove it
-                     from the set of descriptors which are monitored. */
-                  close (events[i].data.fd);
-                }
-            }
         }
     }
 
   free (events);
   close (net_socket);
   close (local_socket);
-
-
-
-  // int common_fd = epoll_create1(0);
-  // struct epoll_event evt_hint;
-  // evt_hint.events = EPOLLIN | EPOLLOUT;
-  // evt_hint.data.fd = local_socket;
-  // epoll_ctl(common_fd, EPOLL_CTL_ADD, local_socket, &evt_hint);
-  // evt_hint.data.fd = net_socket;
-  // epoll_ctl(common_fd, EPOLL_CTL_ADD, net_socket, &evt_hint);
-  //
-  // struct epoll_event evts[EVENTS_MAX_AMOUNT];
-  //
-  // epoll_wait(common_fd, evts, EVENTS_MAX_AMOUNT, -1);
-  //
-  // return NULL;
 }
 
 
 int main(int argc, char* argv[]) {
+  srand(time(NULL));
   parse(argc, argv, &port, path);
 
   net_socket = prepareSocket(AF_INET);
