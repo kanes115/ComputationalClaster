@@ -103,31 +103,31 @@ int prepareSocket(int sockType){
 
 
 //Serializing
-void writeInt(void* buf, int a){
-  bytes[0] = (n >> 24) & 0xFF;
-  bytes[1] = (n >> 16) & 0xFF;
-  bytes[2] = (n >> 8) & 0xFF;
-  bytes[3] = n & 0xFF;
+void writeInt(char* buf, int a){
+  buf[0] = (a >> 24) & 0xFF;
+  buf[1] = (a >> 16) & 0xFF;
+  buf[2] = (a >> 8) & 0xFF;
+  buf[3] = a & 0xFF;
 }
 
-void pingMsg(void* buf){
-  buf[0] = (byte) 0;
+void pingMsg(char* buf){
+  buf[0] = (char) 0;
 }
 
-void registerMsg(void* buf, int wasOk){
+void registerMsg(char* buf, int wasOk){
   if(wasOk == 1)
-    buf[0] = (byte) 1;
+    buf[0] = (char) 1;
   else
-    buf[1] = (byte) 2;
+    buf[1] = (char) 2;
 }
 
-void operationMsg(void* buf, struct Operation op){
-  buf[0] = (byte) 3;
-  void* buftmp = buf + 1;
+void operationMsg(char* buf, struct Operation op){
+  buf[0] = (char) 3;
+  char* buftmp = buf + 1;
   writeInt(buftmp, op.arg1);
-  void* buftmp += 4;
+  buftmp += 4;
   writeInt(buftmp, op.arg2);
-  void* buftmp += 4;
+  buftmp += 4;
   buftmp[0] = op.op;
 }
 //***
@@ -137,7 +137,7 @@ void operationMsg(void* buf, struct Operation op){
 //Client menaging
 void addClient(struct Client cl){
   pthread_mutex_lock(&clients_mutex);
-  clients[clientsCounter++] = cl;
+  clients[clientsCounter++] = &cl;
   pthread_mutex_unlock(&clients_mutex);
 }
 
@@ -150,7 +150,7 @@ void sendToClient(struct Operation op){
   void* buf = malloc(MAX_MSG_LEN);
   operationMsg(buf, op);
 
-  write(client[cl_no]->sock_fd, buf, OP_MSG_LEN);
+  write(clients[cl_no]->sock_fd, buf, OP_MSG_LEN);
   pthread_mutex_unlock(&clients_mutex);
 }
 //***
@@ -161,10 +161,9 @@ void sendToClient(struct Operation op){
 
 
 void serveDataMsg(int source_fd){
-  ssize_t count;
-  void* buf = malloc(MAX_MSG_LEN);
+  char* buf = malloc(MAX_MSG_LEN);
 
-  count = read (source_fd, buf, sizeof buf);
+  read(source_fd, buf, sizeof buf);
 
   int type = buf[0];
 
@@ -179,7 +178,7 @@ void serveDataMsg(int source_fd){
 
 
   if(type == 1){    //rejestrujemy
-    struct Client *cl = malloc(sizeof Client);
+    struct Client *cl = malloc(sizeof(struct Client));
     cl->sock_fd = source_fd;
     strcpy(cl->name, res);
     return;
@@ -196,7 +195,6 @@ void serveDataMsg(int source_fd){
 //main thread body
 void* listenOnSockets(){
 
-  int s;
   int EFD;
   struct epoll_event event;
   struct epoll_event *events;
@@ -276,9 +274,10 @@ void* listenOnSockets(){
         }
     }
 
-  free (events);
-  close (net_socket);
-  close (local_socket);
+    free (events);
+    close (net_socket);
+    close (local_socket);
+  }
 }
 
 
