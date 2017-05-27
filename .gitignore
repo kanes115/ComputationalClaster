@@ -1,0 +1,7 @@
+Makefile
+.idea*
+DS_Store*
+Server
+Client
+build/*
+*/build/*
