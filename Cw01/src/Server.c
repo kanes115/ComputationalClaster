@@ -10,6 +10,10 @@
 #include <sys/types.h>
 #include <netdb.h>
 #include <signal.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+
 
 
 #include "Definitions.h"
@@ -128,14 +132,13 @@ void* listenOnSockets(){
 	          continue;
           }
 	        if(net_socket == events[i].data.fd || local_socket == events[i].data.fd){
-            curr_sock = events[i].data.fd;
+            int curr_sock = events[i].data.fd;
               /* We have a notification on the listening socket, which
                  means one or more incoming connections. */
               while (1){
                   struct sockaddr in_addr;
                   socklen_t in_len;
                   int infd;
-                  char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
 
                   in_len = sizeof in_addr;
                   infd = accept (curr_sock, &in_addr, &in_len);
@@ -150,11 +153,6 @@ void* listenOnSockets(){
                           perror ("accept");
                           break;
                         }
-                  }
-
-                  if(getnameinfo (&in_addr, in_len, hbuf, sizeof hbuf, sbuf, sizeof sbuf, NI_NUMERICHOST | NI_NUMERICSERV) == 0){
-                                printf("Accepted connection on descriptor %d "
-                             "(host=%s, port=%s)\n", infd, hbuf, sbuf);
                   }
 
                   /* Make the incoming socket non-blocking and add it to the
@@ -227,7 +225,8 @@ void* listenOnSockets(){
     }
 
   free (events);
-  close (sfd);
+  close (net_socket);
+  close (local_socket);
 
 
 
@@ -248,7 +247,7 @@ void* listenOnSockets(){
 
 
 int main(int argc, char* argv[]) {
-  parse(argc, argv, port, path);
+  parse(argc, argv, &port, path);
 
   net_socket = prepareSocket(AF_INET);
   local_socket = prepareSocket(AF_LOCAL);
