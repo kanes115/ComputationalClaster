@@ -16,7 +16,7 @@
 
 //Globals
 int orderCounter = 0;
-char port[6];
+int port;
 char path[MAX_PATH_LEN];
 
 int local_socket, net_socket;
@@ -29,7 +29,7 @@ void showUsageClose(){
   exit(-1);
 }
 
-void parse(int argc, char* argv[], char* port, char* path){
+void parse(int argc, char* argv[], int* port, char* path){
   if(argc != 3)
     showUsageClose();
 
@@ -38,7 +38,7 @@ void parse(int argc, char* argv[], char* port, char* path){
   if(strlen(argv[2]) > MAX_PATH_LEN - 1)
     showUsageClose();
 
-  strcpy(port, argv[1]);
+  *port = atoi(argv[1]);
   strcpy(path, argv[2]);
 }
 //***
@@ -73,44 +73,20 @@ static int make_socket_non_blocking(int sfd){
 }
 
 
+
 int prepareSocket(int sockType){
-  struct addrinfo hints;
-  struct addrinfo *result, *rp;
-  int s, sfd;
+  struct sockaddr_in serv_addr;
+  int listenfd;
 
-  memset (&hints, 0, sizeof (struct addrinfo));
-  hints.ai_family = AF_INET;     /* Return IPv4 */
-  hints.ai_socktype = sockType; /* We want a sockType socket */
-  hints.ai_flags = AI_PASSIVE;     /* All interfaces */
+  listenfd = socket(sockType, SOCK_STREAM, 0);
+  memset(&serv_addr, '0', sizeof(serv_addr));
+  serv_addr.sin_family = sockType;
+  serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  serv_addr.sin_port = htons(port);
 
-  s = getaddrinfo (NULL, port, &hints, &result);
-  if (s != 0){
-      fprintf (stderr, "getaddrinfo: %s\n", gai_strerror (s));
-      return -1;
-    }
+  bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 
-  for (rp = result; rp != NULL; rp = rp->ai_next){
-      sfd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-      if (sfd == -1)
-        continue;
-
-      s = bind (sfd, rp->ai_addr, rp->ai_addrlen);
-      if (s == 0){
-          /* We managed to bind successfully! */
-          break;
-        }
-
-      close (sfd);
-    }
-
-  if (rp == NULL){
-      fprintf (stderr, "Could not bind\n");
-      return -1;
-    }
-
-  freeaddrinfo(result);
-  return sfd;
-
+  return listenfd;
 }
 //***
 
