@@ -124,7 +124,7 @@ void sendToClient(char* msg){
 
 int existsClient(char* name){
   for(int i = 0; i < clientsCounter; i++){
-    if(strcmp(clients[i].name, name) == 0)
+    if(strcmp(clients[i]->name, name) == 0)
       return 1;
   }
   return 0;
@@ -143,18 +143,18 @@ void serveDataMsg(int source_fd){
   buf += 2;
 
   if(type == 'r'){    //type register
-    if(existsClient(name)){
-      char* buf = malloc(MAX_MSG_LEN);
-      sprintf(buf, "r:1");
-      send(source_fd, buf, MAX_MSG_LEN);
+    if(existsClient(buf)){
+      char* buff = malloc(MAX_MSG_LEN);
+      sprintf(buff, "r:1");
+      send(source_fd, buff, MAX_MSG_LEN, 0);
     }else{
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
       strcpy(cl->name, buf);
       addClient(cl);
-      char* buf = malloc(MAX_MSG_LEN);
-      sprintf(buf, "r:0");
-      send(source_fd, buf, MAX_MSG_LEN);
+      char* buff = malloc(MAX_MSG_LEN);
+      sprintf(buff, "r:0");
+      send(source_fd, buff, MAX_MSG_LEN, 0);
     }
     return;
   }
@@ -173,12 +173,12 @@ void serveDataMsg(int source_fd){
 void* opsIn(){
 
   while (1) {
-    char* buf[MAX_MSG_LEN];
+    char buf[MAX_MSG_LEN];
     char str[MAX_MSG_LEN - 10];
     printf(">> ");
     fgets(str, MAX_MSG_LEN - 10, stdin);
 
-    i = strlen(str)-1;
+    int i = strlen(str)-1;
     if( str[ i ] == '\n')
       str[i] = '\0';
 

@@ -3,6 +3,10 @@
 #include <sys/un.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 
 #include "Definitions.h"
 
@@ -49,18 +53,18 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
 
 //Preparing socket
 int prepareSocket(int sockType){
-  struct sockaddr_in serv_addr;
+  struct sockaddr_in* serv_addr = malloc(sizeof(struct sockaddr_in));
   int serv_fd;
 
-  struct in_addr serv_addr;
-  inet_aton(address, &serv_addr);
+  struct in_addr* serv_addr_in = malloc(sizeof(struct in_addr));
+  inet_aton(address, serv_addr_in);
 
   serv_fd = socket(sockType, SOCK_STREAM, 0);
-  memset(&serv_addr, '0', sizeof(serv_addr));
-  serv_addr.sin_family = sockType;
-  serv_addr.sin_addr.s_addr = serv_addr;
+  memset(serv_addr, '0', sizeof(*serv_addr));
+  serv_addr->sin_family = sockType;
+  serv_addr->sin_addr.s_addr = &serv_addr_in;
   if(communicationWay == AF_INET)
-    serv_addr.sin_port = htons(port);
+    serv_addr->sin_port = htons(port);
 
   bind(serv_fd, (struct sockaddr*) &serv_addr, sizeof(serv_addr));
 
@@ -92,27 +96,24 @@ void sendResultMsg(char* result){
 
 
 
-void run(){
-
-  char buf[MAX_MSG_LEN];
-
-  while(1){
-    if(recv(serv_fd, buf, MAX_MSG_LEN, 0)){
-      serveDataMsg(buf);
-    }
-  }
-}
+// void run(){
+//
+//   char buf[MAX_MSG_LEN];
+//
+//   while(1){
+//     if(recv(serv_fd, buf, MAX_MSG_LEN, 0)){
+//       serveDataMsg(buf);
+//     }
+//   }
+// }
 
 
 
 
 
 int main(int argc, char* argv[]){
-  parse(argc, argv, name, &communicationWay, address, port);
+  parse(argc, argv, name, &communicationWay, address, &port);
   serv_fd = prepareSocket(communicationWay);
 
-  sendTextMsg(REGISTER);
-
-
-  run();
+  sendRegisterMsg();
 }
