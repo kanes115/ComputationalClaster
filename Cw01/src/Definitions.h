@@ -14,6 +14,13 @@
 #define MAX_PATH_LEN 104  //for unix 108 in fact, working on macos
 #define OP_MSG_LEN 10
 
+//types of messages
+#define PING 0
+#define REGISTER 1
+#define REGISTER_OK 1
+#define REGISTER_TAKEN 2
+#define OP 3
+
 struct Client{
   int sock_fd;
   char name[CLIENTS_MAX_NAMELEN];

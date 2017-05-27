@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <pthread.h>
+#include <string.h>
 
 
 
@@ -27,6 +28,7 @@ char path[MAX_PATH_LEN];
 int local_socket, net_socket;
 int backlog = 5;
 
+int ordersCounter = 0;
 //klienci
 struct Client* clients[CLIENTS_MAX_NO];
 int clientsCounter = 0;
@@ -102,60 +104,32 @@ int prepareSocket(int sockType){
 
 
 
-//Serializing
-void writeInt(char* buf, int a){
-  buf[0] = (a >> 24) & 0xFF;
-  buf[1] = (a >> 16) & 0xFF;
-  buf[2] = (a >> 8) & 0xFF;
-  buf[3] = a & 0xFF;
-}
-
-void pingMsg(char* buf){
-  buf[0] = (char) 0;
-}
-
-void registerMsg(char* buf, int wasOk){
-  if(wasOk == 1)
-    buf[0] = (char) 1;
-  else
-    buf[1] = (char) 2;
-}
-
-void operationMsg(char* buf, struct Operation op){
-  buf[0] = (char) 3;
-  char* buftmp = buf + 1;
-  writeInt(buftmp, op.arg1);
-  buftmp += 4;
-  writeInt(buftmp, op.arg2);
-  buftmp += 4;
-  buftmp[0] = op.op;
-}
-//***
-
-
-
 //Client menaging
-void addClient(struct Client cl){
+void addClient(struct Client* cl){
   pthread_mutex_lock(&clients_mutex);
-  clients[clientsCounter++] = &cl;
+  clients[clientsCounter++] = cl;
   pthread_mutex_unlock(&clients_mutex);
 }
 
-void sendToClient(struct Operation op){
+void sendToClient(char* msg){
   pthread_mutex_lock(&clients_mutex);
   if(clientsCounter == 0)
     return;
 
   int cl_no = rand()%clientsCounter;
-  void* buf = malloc(MAX_MSG_LEN);
-  operationMsg(buf, op);
 
-  write(clients[cl_no]->sock_fd, buf, OP_MSG_LEN);
+  write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1);
   pthread_mutex_unlock(&clients_mutex);
 }
+
+int existsClient(char* name){
+  for(int i = 0; i < clientsCounter; i++){
+    if(strcmp(clients[i].name, name) == 0)
+      return 1;
+  }
+  return 0;
+}
 //***
-
-
 
 
 
@@ -166,33 +140,59 @@ void serveDataMsg(int source_fd){
   read(source_fd, buf, sizeof buf);
 
   int type = buf[0];
-
-  buf += 1;
-  short len = 0;
-  len = buf[0] << 8;
-  len += buf[1];
   buf += 2;
-  char* res = (char*) buf;
-  buf += len;
-  buf[0] = '\0';
 
-
-  if(type == 1){    //rejestrujemy
-    struct Client *cl = malloc(sizeof(struct Client));
-    cl->sock_fd = source_fd;
-    strcpy(cl->name, res);
+  if(type == 'r'){    //type register
+    if(existsClient(name)){
+      char* buf = malloc(MAX_MSG_LEN);
+      sprintf(buf, "r:1");
+      send(source_fd, buf, MAX_MSG_LEN);
+    }else{
+      struct Client *cl = malloc(sizeof(struct Client));
+      cl->sock_fd = source_fd;
+      strcpy(cl->name, buf);
+      addClient(cl);
+      char* buf = malloc(MAX_MSG_LEN);
+      sprintf(buf, "r:0");
+      send(source_fd, buf, MAX_MSG_LEN);
+    }
     return;
   }
-  if(type == 3){
-    printf("%s\n", res);
+
+  if(type == 'o'){
+    printf("%s\n", buf);
     return;
   }
-
 }
 
 
 
-//main thread body
+
+
+//main stdin thread body
+void* opsIn(){
+
+  while (1) {
+    char* buf[MAX_MSG_LEN];
+    char str[MAX_MSG_LEN - 10];
+    printf(">> ");
+    fgets(str, MAX_MSG_LEN - 10, stdin);
+
+    i = strlen(str)-1;
+    if( str[ i ] == '\n')
+      str[i] = '\0';
+
+    sprintf(buf, "o:%s:%d", str, ordersCounter++);
+    sendToClient(buf);
+  }
+
+  return NULL;
+}
+
+
+
+
+//main net thread body
 void* listenOnSockets(){
 
   int EFD;
@@ -294,7 +294,8 @@ int main(int argc, char* argv[]) {
 
   pthread_t p_id;
   pthread_create(&p_id, NULL, (void*) listenOnSockets, NULL);
+  pthread_create(&p_id, NULL, (void*) opsIn, NULL);
 
-  getchar();
+  while(1){}
 
 }
