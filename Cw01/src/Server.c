@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -5,15 +6,21 @@
 #include <stdlib.h>
 #include <sys/epoll.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <signal.h>
+
 
 #include "Definitions.h"
 
 //Globals
 int orderCounter = 0;
-char port[6];
+int port;
 char path[MAX_PATH_LEN];
 
 int local_socket, net_socket;
+int backlog = 5;
 //***
 
 //Parse
@@ -22,7 +29,7 @@ void showUsageClose(){
   exit(-1);
 }
 
-void parse(int argc, char* argv[], char* port, char* path){
+void parse(int argc, char* argv[], int* port, char* path){
   if(argc != 3)
     showUsageClose();
 
@@ -31,7 +38,7 @@ void parse(int argc, char* argv[], char* port, char* path){
   if(strlen(argv[2]) > MAX_PATH_LEN - 1)
     showUsageClose();
 
-  strcpy(port, argv[1]);
+  *port = atoi(argv[1]);
   strcpy(path, argv[2]);
 }
 //***
@@ -45,58 +52,36 @@ void cleanUp(int signum){
 }
 //***
 
-int prepareSockets(){
-  struct addrinfo hints, *res;
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_INET;  // use IPv4
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+int prepareSockets(int sockType){
+  struct sockaddr_in server;
 
-
-  if(getaddrinfo(NULL, port, &hints, &res) != 0){
-      perror("getaddrinfo");
+  //Create socket
+  net_socket = socket(sockType , SOCK_STREAM , 0);
+  if (net_socket == -1){
+      printf("Could not create socket");
       return -1;
   }
-  if((net_scoket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1){
-      perror("socket");
-      return -2;
-  }
-  if(bind(net_scoket, res->ai_addr, res->ai_addrlen) != 0){
-        perror("bind");
-        return -3;
-    }
-  if(listen(net_scoket, backlog) != 0){
-      perror("listen");
-      return -4;
+
+  //Prepare the sockaddr_in structure
+  server.sin_family = sockType;
+  server.sin_addr.s_addr = INADDR_ANY;
+  server.sin_port = htons( port );
+
+  //Bind
+  if( bind(net_socket, (struct sockaddr *)&server , sizeof(server)) < 0){
+      perror("bind failed. Error");
+      return 1;
   }
 
+  //Listen
+  listen(net_socket , backlog);
 
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_LOCAL;  // use local
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
-
-  if(getaddrinfo(NULL, port, &hints, &res) != 0){
-      perror("getaddrinfo");
-      return -1;
-  }
-  if((local_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1){
-      perror("socket");
-      return -2;
-  }
-  if(bind(local_socket, res->ai_addr, res->ai_addrlen) != 0){
-        perror("bind");
-        return -3;
-    }
-  if(listen(local_socket, backlog) != 0){
-      perror("listen");
-      return -4;
-  }
   return 0;
+
 }
 
 void* listenOnSockets(){
-  common_fd = epoll_create1(0);
+  int common_fd = epoll_create1(0);
   struct epoll_event evt_hint;
   evt_hint.events = EPOLLIN | EPOLLOUT;
   evt_hint.data.fd = local_socket;
@@ -106,16 +91,20 @@ void* listenOnSockets(){
 
   struct epoll_event evts[EVENTS_MAX_AMOUNT];
 
-  epoll_wait(common_fd, &evts, EVENTS_MAX_AMOUNT, -1);
+  epoll_wait(common_fd, evts, EVENTS_MAX_AMOUNT, -1);
+
+  return NULL;
 }
 
 
 int main(int argc, char* argv[]) {
-  parse(argc, argv, port, path);
-  prepareSockets();
+  parse(argc, argv, &port, path);
+  prepareSockets(AF_INET);
+  prepareSockets(AF_LOCAL);
   signal(SIGINT, cleanUp);
 
-  pthread_create(NULL, NULL, (void*) listenOnSockets, NULL);
+  pthread_t p_id;
+  pthread_create(&p_id, NULL, (void*) listenOnSockets, NULL);
 
   getchar();
 
