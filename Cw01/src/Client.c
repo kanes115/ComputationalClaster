@@ -1,3 +1,4 @@
+#define  _XOPEN_SOURCE 600
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -6,6 +7,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <unistd.h>
+
 
 
 #include "Definitions.h"
@@ -14,8 +19,8 @@
 //Globals
 char name[CLIENTS_MAX_NAMELEN];
 int communicationWay;
-char address[MAX_PATH_LEN];
-int port;
+char char_address[MAX_PATH_LEN];
+char port[7];
 int serv_fd;
 
 char* calcResult;
@@ -29,7 +34,7 @@ void showUsageClose(){
   exit(-1);
 }
 
-void parse(int argc, char* argv[], char* name, int* communicationWay, char* address, int* port){
+void parse(int argc, char* argv[], char* name, int* communicationWay, char* address, char* port){
   if(argc < 4)
     showUsageClose();
 
@@ -37,7 +42,7 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
 
   if(strcmp(argv[2], "local") == 0)
     *communicationWay = AF_LOCAL;
-  else if(strcmp(argv[2], "ipv4") == 0)
+  else if(strcmp(argv[2], "net") == 0)
     *communicationWay = AF_INET;
   else
     showUsageClose();
@@ -45,30 +50,54 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
   strcpy(address, argv[3]);
 
   if(*communicationWay == AF_INET)
-    *port = atoi(argv[4]);
+    port = argv[4];
   else
-    *port = -1;
+    port = "-1";
 }
+
+int streq(char *string1, char *string2) {
+    return strcmp(string1, string2) == 0;
+}
+
 //***
 
 //Preparing socket
 int prepareSocket(int sockType){
-  struct sockaddr_in* serv_addr = malloc(sizeof(struct sockaddr_in));
-  int serv_fd;
 
-  struct in_addr* serv_addr_in = malloc(sizeof(struct in_addr));
-  inet_aton(address, serv_addr_in);
-
-  serv_fd = socket(sockType, SOCK_STREAM, 0);
-  memset(serv_addr, '0', sizeof(*serv_addr));
-  serv_addr->sin_family = sockType;
-  serv_addr->sin_addr.s_addr = &serv_addr_in;
-  if(communicationWay == AF_INET)
-    serv_addr->sin_port = htons(port);
-
-  bind(serv_fd, (struct sockaddr*) &serv_addr, sizeof(serv_addr));
-
-  return serv_fd;
+  int server_socket;
+    if (communicationWay == AF_INET) {
+        struct addrinfo address, *res;
+        memset(&address, 0, sizeof(address));
+        address.ai_family = AF_UNSPEC;    //INET?
+        address.ai_socktype = SOCK_STREAM;
+        getaddrinfo(char_address, port, &address, &res);
+        if ((server_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
+            perror("Socket");
+            return -1;
+        }
+        if (connect(server_socket, res->ai_addr, res->ai_addrlen) < 0) {
+            close(server_socket);
+            perror("Connection");
+            return -1;
+        }
+    } else if (communicationWay == AF_LOCAL) {
+        struct sockaddr_un address;
+        memset(&address, 0, sizeof(address));
+        address.sun_family = AF_UNIX;
+        strcpy(address.sun_path, char_address);
+        if ((server_socket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            perror("Socket");
+            return -1;
+        }
+        if (connect(server_socket, (const struct sockaddr *) &address, sizeof(address)) < 0) {
+            close(server_socket);
+            perror("Connection");
+            return -1;
+        }
+    } else {
+        server_socket = -1;
+    }
+    return server_socket;
 }
 //***
 
@@ -82,7 +111,23 @@ void sendPingMsg(){
 void sendRegisterMsg(){
   char* buf = malloc(MAX_MSG_LEN);
   sprintf(buf, "reg:%s", name);
-  send(serv_fd, buf, strlen(buf) + 1, 0);
+  if(send(serv_fd, buf, strlen(buf) + 1, 0) == -1){
+    perror("send");
+    exit(1);
+  }
+
+  char* resp = malloc(MAX_MSG_LEN);
+
+  while(1){
+    printf("ss\n");
+    if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
+      if(strcmp(resp, "r:1") == 0){
+        printf("This name is taken\n");
+        exit(1);
+      }else
+        return;
+    }
+  }
 }
 
 void sendResultMsg(char* result){
@@ -96,23 +141,9 @@ void sendResultMsg(char* result){
 
 
 
-// void run(){
-//
-//   char buf[MAX_MSG_LEN];
-//
-//   while(1){
-//     if(recv(serv_fd, buf, MAX_MSG_LEN, 0)){
-//       serveDataMsg(buf);
-//     }
-//   }
-// }
-
-
-
-
 
 int main(int argc, char* argv[]){
-  parse(argc, argv, name, &communicationWay, address, &port);
+  parse(argc, argv, name, &communicationWay, char_address, port);
   serv_fd = prepareSocket(communicationWay);
 
   sendRegisterMsg();

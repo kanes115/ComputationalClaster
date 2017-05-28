@@ -137,7 +137,7 @@ int existsClient(char* name){
 void serveDataMsg(int source_fd){
   char* buf = malloc(MAX_MSG_LEN);
 
-  read(source_fd, buf, sizeof buf);
+  read(source_fd, buf, strlen(buf) + 1);
 
   int type = buf[0];
   buf += 2;
@@ -274,9 +274,9 @@ void* listenOnSockets(){
         }
     }
 
-    free (events);
-    close (net_socket);
-    close (local_socket);
+    //free (events);
+    //close (net_socket);
+    //close (local_socket);
   }
 }
 
