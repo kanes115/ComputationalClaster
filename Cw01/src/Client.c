@@ -110,7 +110,8 @@ void sendPingMsg(){
 
 void sendRegisterMsg(){
   char* buf = malloc(MAX_MSG_LEN);
-  sprintf(buf, "reg:%s", name);
+  sprintf(buf, "r:%s", name);
+  printf("Sending my name in msg: %s (length = %d)\n", buf, strlen(buf) + 1);
   if(send(serv_fd, buf, strlen(buf) + 1, 0) == -1){
     perror("send");
     exit(1);
@@ -124,8 +125,10 @@ void sendRegisterMsg(){
       if(streq(resp, "r:1")){
         printf("This name is taken\n");
         exit(1);
-      }else
+      }else if(streq(resp, "r:0")){
+        printf("Got registered!\n");
         return;
+      }
     }
   }
 }
@@ -133,20 +136,24 @@ void sendRegisterMsg(){
 //***
 
 void calculate(char* expr, char* buf){
-  char* arg1 = strtok(expr, " ");
+  char* tmpexpr = malloc(strlen(expr) + 1);
+  strcpy(tmpexpr, expr);
+  char* arg1 = strtok(tmpexpr, " ");
   char* op = strtok(NULL, " ");
-  char* arg2 = strtok(expr, " ");
+  char* arg2 = strtok(NULL, " ");
+
 
   int arg1i = atoi(arg1);
   int arg2i = atoi(arg2);
+  printf("args: %d, %d\n", arg1i, arg2i);
   int resi;
   if(streq(op, "+"))
     resi = arg1i + arg2i;
-  if(streq(op, "-"))
+  else if(streq(op, "-"))
     resi = arg1i - arg2i;
-  if(streq(op, "*"))
+  else if(streq(op, "*"))
     resi = arg1i * arg2i;
-  if(streq(op, "/")){
+  else if(streq(op, "/")){
     if(arg2i == 0){
       fprintf(stderr, "%s\n", "0 division!");
       exit(-1);
@@ -157,9 +164,7 @@ void calculate(char* expr, char* buf){
     exit(-1);
   }
 
-  char* res = malloc(MAX_MSG_LEN);
-
-  sprintf(res, "%s = %d", expr, resi);
+  sprintf(buf, "%s = %d", expr, resi);
 
 }
 
@@ -185,11 +190,13 @@ void run(){
         char resBuf[MAX_MSG_LEN];
         calculate(calcText, resBuf);
         char toSend[MAX_MSG_LEN];
-        sprintf("o:[orderNo %s] %s\n", orderNo, resBuf);
+        sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
+        printf("toSend: %s\n", toSend);
         if(send(serv_fd, toSend, MAX_MSG_LEN, 0) == -1){
           perror("send");
         }
       }
+    }
   }
 }
 
@@ -207,6 +214,7 @@ int main(int argc, char* argv[]){
     return -1;
 
   sendRegisterMsg();
+  run();
 
   while(1){}
 }

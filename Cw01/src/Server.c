@@ -106,30 +106,32 @@ int prepareSocket(int sockType){
 
 //Client menaging
 void addClient(struct Client* cl){
-  pthread_mutex_lock(&clients_mutex);
+  //pthread_mutex_lock(&clients_mutex);
   clients[clientsCounter++] = cl;
-  pthread_mutex_unlock(&clients_mutex);
+  //pthread_mutex_unlock(&clients_mutex);
 }
 
 void sendToClient(char* msg){
-  pthread_mutex_lock(&clients_mutex);
+  //pthread_mutex_lock(&clients_mutex);
   if(clientsCounter == 0)
     return;
 
   int cl_no = rand()%clientsCounter;
 
-  write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1);
-  pthread_mutex_unlock(&clients_mutex);
+  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) < strlen(msg) + 1){
+    fprintf(stderr, "%s\n", "write...");
+  }
+  //pthread_mutex_unlock(&clients_mutex);
 }
 
 int existsClient(char* name){
-  pthread_mutex_lock(&clients_mutex);
+  //pthread_mutex_lock(&clients_mutex);
   for(int i = 0; i < clientsCounter; i++){
     if(strcmp(clients[i]->name, name) == 0)
       return 1;
   }
   return 0;
-  pthread_mutex_unlock(&clients_mutex);
+  //pthread_mutex_unlock(&clients_mutex);
 }
 //***
 
@@ -139,24 +141,31 @@ int existsClient(char* name){
 void serveDataMsg(int source_fd){
   char* buf = malloc(MAX_MSG_LEN);
 
-  read(source_fd, buf, strlen(buf) + 1);
+  read(source_fd, buf, MAX_MSG_LEN);
+
+  printf("Got message: %s\n", buf);
 
   int type = buf[0];
   buf += 2;
 
   if(type == 'r'){    //type register
+    printf("Was r!\n");
     if(existsClient(buf)){
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:1");
       send(source_fd, buff, MAX_MSG_LEN, 0);
     }else{
+      printf("And client does not exist!\n");
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
       strcpy(cl->name, buf);
       addClient(cl);
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:0");
-      send(source_fd, buff, MAX_MSG_LEN, 0);
+      if(send(source_fd, buff, MAX_MSG_LEN, 0) == -1){
+        perror("send");
+      }
+      printf("sent\n");
     }
     return;
   }
@@ -185,6 +194,7 @@ void* opsIn(){
       str[i] = '\0';
 
     sprintf(buf, "o:%s:%d", str, ordersCounter++);
+    printf("sending: %s\n", buf);
     sendToClient(buf);
   }
 
