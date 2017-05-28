@@ -106,32 +106,26 @@ int prepareSocket(int sockType){
 
 //Client menaging
 void addClient(struct Client* cl){
-  //pthread_mutex_lock(&clients_mutex);
   clients[clientsCounter++] = cl;
-  //pthread_mutex_unlock(&clients_mutex);
 }
 
 void sendToClient(char* msg){
-  //pthread_mutex_lock(&clients_mutex);
   if(clientsCounter == 0)
     return;
 
   int cl_no = rand()%clientsCounter;
 
-  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) < strlen(msg) + 1){
+  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) = -1){
     fprintf(stderr, "%s\n", "write...");
   }
-  //pthread_mutex_unlock(&clients_mutex);
 }
 
 int existsClient(char* name){
-  //pthread_mutex_lock(&clients_mutex);
   for(int i = 0; i < clientsCounter; i++){
     if(strcmp(clients[i]->name, name) == 0)
       return 1;
   }
   return 0;
-  //pthread_mutex_unlock(&clients_mutex);
 }
 //***
 

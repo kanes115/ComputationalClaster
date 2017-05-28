@@ -203,6 +203,10 @@ void run(){
 
 
 
+void cleanUp(int signum){
+  close(serv_fd);
+}
+
 
 
 
@@ -212,6 +216,7 @@ int main(int argc, char* argv[]){
   serv_fd = prepareSocket(communicationWay);
   if(serv_fd == -1)
     return -1;
+  signal(SIGINT, cleanUp);
 
   sendRegisterMsg();
   run();
