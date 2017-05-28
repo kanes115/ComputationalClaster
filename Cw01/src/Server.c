@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE
+#define  _XOPEN_SOURCE 600
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -68,6 +68,7 @@ int streq(char *string1, char *string2) {
 void cleanUp(int signum){
   pthread_cancel(p1);
   pthread_cancel(p2);
+  pthread_cancel(p3);
 
   if(shutdown(local_socket, SHUT_RDWR) == -1){
     printf("Couldn't close\n");
@@ -88,6 +89,7 @@ void cleanUp(int signum){
   if(close(local_socket) == -1){
     printf("Couldn't close\n");
   }
+  unlink(path);
   if(close(net_socket) == -1){
     printf("Couldn't close\n");
   }
@@ -141,6 +143,62 @@ int prepareSocket(int sockType){
   }
 
   return listenfd;
+}
+
+
+int prepareUnixSocket(char *path) {
+    int unix_socket;
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    strcpy(address.sun_path, path);
+    if ((unix_socket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        perror("Unix socket");
+        return -1;
+    }
+    if ((bind(unix_socket, (const struct sockaddr *) &address, sizeof(address))) < 0) {
+        close(unix_socket);
+        perror("Unix socket bind");
+        return -1;
+    }
+    if ((listen(unix_socket, 5)) < 0) {
+        perror("Unix socket listen");
+        return -1;
+    }
+    if ((make_socket_non_blocking(unix_socket)) < 0) {
+        perror("Unix socket make non blocking");
+        return -1;
+    }
+    return unix_socket;
+}
+
+
+int prepareWebSocket(char *port) {
+    int web_socket;
+    struct addrinfo name, *res;
+    memset(&name, 0, sizeof(name));
+    name.ai_family = AF_UNSPEC;
+    name.ai_socktype = SOCK_STREAM;
+    name.ai_flags = AI_PASSIVE;
+    getaddrinfo(NULL, port, &name, &res);
+    if ((web_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
+        perror("Web socket");
+        return -1;
+    }
+    if ((bind(web_socket, res->ai_addr, res->ai_addrlen)) < 0) {
+        close(web_socket);
+        perror("Web socket bind");
+        return -1;
+    }
+    if ((listen(web_socket, 5)) < 0) {
+        perror("Web socket listen");
+        return -1;
+    }
+    if ((make_socket_non_blocking(web_socket)) < 0) {
+        perror("Web socket make non blocking");
+        return -1;
+    }
+    return web_socket;
 }
 //***
 
@@ -409,8 +467,12 @@ int main(int argc, char* argv[]) {
   srand(time(NULL));
   parse(argc, argv, &port, path);
 
-  net_socket = prepareSocket(AF_INET);
-  local_socket = prepareSocket(AF_LOCAL);
+  char portbuf[7];
+  sprintf(portbuf, "%d", port);
+  net_socket = prepareWebSocket(portbuf);
+  local_socket = prepareUnixSocket(path);
+  if(net_socket == -1 || local_socket == -1)
+    exit(-1);
   make_socket_non_blocking(net_socket);
   make_socket_non_blocking(local_socket);
 

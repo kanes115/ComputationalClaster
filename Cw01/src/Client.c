@@ -49,6 +49,11 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
   else
     showUsageClose();
 
+  if(argc != 4 && *communicationWay == AF_LOCAL)
+    showUsageClose();
+  if(argc != 5 && *communicationWay == AF_INET)
+    showUsageClose();
+
   strcpy(address, argv[3]);
 
   if(*communicationWay == AF_INET)
