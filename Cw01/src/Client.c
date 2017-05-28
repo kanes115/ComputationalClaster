@@ -76,10 +76,13 @@ int numbers_only(const char *s){
 //***
 
 
-void send_msg(int client, char *msg) {
+int send_msg(int client, char *msg) {
     char message[MAX_MSG_LEN];
     sprintf(message, "%s", msg);
-    send(client, message, MAX_MSG_LEN, 0);
+    if(send(client, message, MAX_MSG_LEN, 0) == -1){
+      return -1;
+    }
+    return 0;
 }
 
 
@@ -130,7 +133,7 @@ void sendRegisterMsg(){
   char* buf = malloc(MAX_MSG_LEN);
   sprintf(buf, "r:%s", name);
   printf("Sending my name in msg: %s (length = %ld)\n", buf, strlen(buf) + 1);
-  if(send(serv_fd, buf, strlen(buf) + 1, 0) == -1){
+  if(send_msg(serv_fd, buf) == -1){
     perror("send");
     exit(1);
   }
@@ -219,7 +222,7 @@ void run(){
         }
         char toSend[MAX_MSG_LEN];
         sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
-        if(send(serv_fd, toSend, MAX_MSG_LEN, 0) == -1){
+        if(send_msg(serv_fd, toSend) == -1){
           perror("send");
         }
       }

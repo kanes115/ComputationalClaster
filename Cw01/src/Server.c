@@ -300,7 +300,7 @@ void serveDataMsg(int source_fd){
     if(existsClient(buf)){
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:1");
-      send(source_fd, buff, MAX_MSG_LEN, 0);
+      send_msg(source_fd, buff);
     }else{
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
@@ -309,7 +309,7 @@ void serveDataMsg(int source_fd){
       addClient(cl);
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:0");
-      if(send(source_fd, buff, MAX_MSG_LEN, 0) == -1){
+      if(send_msg(source_fd, buff) == -1){
         perror("send");
       }
     }
