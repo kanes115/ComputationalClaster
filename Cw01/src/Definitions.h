@@ -15,7 +15,7 @@
 #define OP_MSG_LEN 10
 
 //types of messages
-#define PING 0
+#define PING 5
 #define REGISTER 1
 #define REGISTER_OK 1
 #define REGISTER_TAKEN 2

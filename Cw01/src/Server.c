@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <string.h>
+#include <signal.h>
 
 
 
@@ -29,6 +30,8 @@ int local_socket, net_socket;
 int backlog = 5;
 
 int ordersCounter = 0;
+
+pthread_t p1, p2, p3;
 //klienci
 struct Client* clients[CLIENTS_MAX_NO];
 int clientsCounter = 0;
@@ -57,10 +60,30 @@ void parse(int argc, char* argv[], int* port, char* path){
 
 //cleanUp
 void cleanUp(int signum){
-  shutdown(local_socket, SHUT_RDWR);
-  shutdown(net_socket, SHUT_RDWR);
-  close(local_socket);
-  close(net_socket);
+  pthread_cancel(p1);
+  pthread_cancel(p2);
+
+  if(shutdown(local_socket, SHUT_RDWR) == -1){
+    printf("Couldn't close\n");
+  }
+  if(shutdown(net_socket, SHUT_RDWR) == -1){
+    printf("Couldn't close\n");
+  }
+  for(int i = 0; i < clientsCounter; i++){
+    if(shutdown(clients[i]->sock_fd, SHUT_RDWR) == -1){
+      printf("Couldn't close\n");
+    }
+    if(close(clients[i]->sock_fd) == -1){
+      printf("Couldn't close\n");
+    }
+  }
+  if(close(local_socket) == -1){
+    printf("Couldn't close\n");
+  }
+  if(close(net_socket) == -1){
+    printf("Couldn't close\n");
+  }
+  exit(0);
 }
 //***
 
@@ -90,12 +113,24 @@ int prepareSocket(int sockType){
   int listenfd;
 
   listenfd = socket(sockType, SOCK_STREAM, 0);
+  if(listenfd == -1){
+    printf("Couldn't open socket\n");
+    perror("socket");
+    exit(-1);
+  }
+  //not sure
+  int true = 1;
+  setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR, &true, sizeof(int));
+  //***
   memset(&serv_addr, '0', sizeof(serv_addr));
   serv_addr.sin_family = sockType;
   serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
   serv_addr.sin_port = htons(port);
 
-  bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+  if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1){
+    perror("bind");
+    exit(-1);
+  }
 
   return listenfd;
 }
@@ -110,12 +145,13 @@ void addClient(struct Client* cl){
 }
 
 void sendToClient(char* msg){
-  if(clientsCounter == 0)
+  if(clientsCounter == 0){
+    fprintf(stderr, "%s\n", "No clients!");
     return;
-
+  }
   int cl_no = rand()%clientsCounter;
 
-  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) = -1){
+  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) == -1){
     fprintf(stderr, "%s\n", "write...");
   }
 }
@@ -126,6 +162,17 @@ int existsClient(char* name){
       return 1;
   }
   return 0;
+}
+
+void deleteClient(int id){
+  int i = 0;
+  while(clients[i]->sock_fd != id)
+    i++;
+
+  struct Client* tmp = clients[i];
+  clients[i] = clients[clientsCounter--];
+  free(tmp);
+
 }
 //***
 
@@ -143,13 +190,11 @@ void serveDataMsg(int source_fd){
   buf += 2;
 
   if(type == 'r'){    //type register
-    printf("Was r!\n");
     if(existsClient(buf)){
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:1");
       send(source_fd, buff, MAX_MSG_LEN, 0);
     }else{
-      printf("And client does not exist!\n");
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
       strcpy(cl->name, buf);
@@ -159,7 +204,6 @@ void serveDataMsg(int source_fd){
       if(send(source_fd, buff, MAX_MSG_LEN, 0) == -1){
         perror("send");
       }
-      printf("sent\n");
     }
     return;
   }
@@ -171,6 +215,23 @@ void serveDataMsg(int source_fd){
 }
 
 
+
+
+//main ping body
+void sendPingMsg(int sock){
+  char* buf = malloc(1);
+  buf[0] = PING;
+  send(sock, buf, 1, 0);
+
+
+}
+
+void* pingThem(){
+  for(int i = 0; i < clientsCounter; i++){
+    sendPingMsg(clients[i]->sock_fd);
+  }
+}
+//***
 
 
 
@@ -188,13 +249,12 @@ void* opsIn(){
       str[i] = '\0';
 
     sprintf(buf, "o:%s:%d", str, ordersCounter++);
-    printf("sending: %s\n", buf);
     sendToClient(buf);
   }
 
   return NULL;
 }
-
+//***
 
 
 
@@ -225,9 +285,10 @@ void* listenOnSockets(){
       n = epoll_wait (EFD, events, EVENTS_MAX_AMOUNT, -1);
       for (int i = 0; i < n; i++){
 	       if ((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP) || (!(events[i].events & EPOLLIN))){
-            //Simply error
-	          fprintf (stderr, "epoll error\n");
-	          close (events[i].data.fd);
+            //Simply error - the other end closed
+	          fprintf (stderr, "this file descriptor is already closed on the other side\n");
+	          close(events[i].data.fd);
+            //deleteClient(events[i].data.fd);
 	          continue;
           }
 	        if(net_socket == events[i].data.fd || local_socket == events[i].data.fd){
@@ -285,7 +346,7 @@ void* listenOnSockets(){
     //close (local_socket);
   }
 }
-
+//***
 
 int main(int argc, char* argv[]) {
   srand(time(NULL));
@@ -298,9 +359,9 @@ int main(int argc, char* argv[]) {
 
   signal(SIGINT, cleanUp);
 
-  pthread_t p_id;
-  pthread_create(&p_id, NULL, (void*) listenOnSockets, NULL);
-  pthread_create(&p_id, NULL, (void*) opsIn, NULL);
+
+  pthread_create(&p1, NULL, (void*) listenOnSockets, NULL);
+  pthread_create(&p2, NULL, (void*) opsIn, NULL);
 
   while(1){}
 

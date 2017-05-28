@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <signal.h>
 
 
 
@@ -104,7 +105,7 @@ int prepareSocket(int sockType){
 //messages
 void sendPingMsg(){
   char* buf = malloc(1);
-  buf[0] = 0;
+  buf[0] = PING;
   send(serv_fd, buf, 1, 0);
 }
 
@@ -121,7 +122,6 @@ void sendRegisterMsg(){
 
   while(1){
     if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
-      printf("%s\n", resp);
       if(streq(resp, "r:1")){
         printf("This name is taken\n");
         exit(1);
@@ -145,7 +145,6 @@ void calculate(char* expr, char* buf){
 
   int arg1i = atoi(arg1);
   int arg2i = atoi(arg2);
-  printf("args: %d, %d\n", arg1i, arg2i);
   int resi;
   if(streq(op, "+"))
     resi = arg1i + arg2i;
@@ -178,7 +177,7 @@ void run(){
     char* resp = malloc(MAX_MSG_LEN);
     if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
       printf("%s\n", resp);
-      if(resp[0] == 0){ //ping
+      if(resp[0] == PING){ //ping
         printf("Pinged\n");
         sendPingMsg();
         continue;
@@ -191,7 +190,6 @@ void run(){
         calculate(calcText, resBuf);
         char toSend[MAX_MSG_LEN];
         sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
-        printf("toSend: %s\n", toSend);
         if(send(serv_fd, toSend, MAX_MSG_LEN, 0) == -1){
           perror("send");
         }
@@ -205,6 +203,7 @@ void run(){
 
 void cleanUp(int signum){
   close(serv_fd);
+  exit(0);
 }
 
 
