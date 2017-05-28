@@ -101,7 +101,7 @@ int prepareSocket(int sockType){
 }
 //***
 
-
+//messages
 void sendPingMsg(){
   char* buf = malloc(1);
   buf[0] = 0;
@@ -130,13 +130,71 @@ void sendRegisterMsg(){
   }
 }
 
-void sendResultMsg(char* result){
-  char* buf = malloc(MAX_MSG_LEN);
-  sprintf(buf, "res:%s", result);
-  send(serv_fd, buf, strlen(buf) + 1, 0);
+//***
+
+void calculate(char* expr, char* buf){
+  char* arg1 = strtok(expr, " ");
+  char* op = strtok(NULL, " ");
+  char* arg2 = strtok(expr, " ");
+
+  int arg1i = atoi(arg1);
+  int arg2i = atoi(arg2);
+  int resi;
+  if(streq(op, "+"))
+    resi = arg1i + arg2i;
+  if(streq(op, "-"))
+    resi = arg1i - arg2i;
+  if(streq(op, "*"))
+    resi = arg1i * arg2i;
+  if(streq(op, "/")){
+    if(arg2i == 0){
+      fprintf(stderr, "%s\n", "0 division!");
+      exit(-1);
+    }
+    resi = arg1i / arg2i;
+  }else{
+    fprintf(stderr, "%s\n", "Unknown");
+    exit(-1);
+  }
+
+  char* res = malloc(MAX_MSG_LEN);
+
+  sprintf(res, "%s = %d", expr, resi);
+
 }
 
-//***
+
+
+
+
+void run(){
+
+  while(1){
+    char* resp = malloc(MAX_MSG_LEN);
+    if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
+      printf("%s\n", resp);
+      if(resp[0] == 0){ //ping
+        printf("Pinged\n");
+        sendPingMsg();
+        continue;
+      }
+      if(resp[0] == 'o'){
+        resp += 2;
+        char* calcText = strtok(resp, ":");
+        char* orderNo = strtok(NULL, ":");
+        char resBuf[MAX_MSG_LEN];
+        calculate(calcText, resBuf);
+        char toSend[MAX_MSG_LEN];
+        sprintf("o:[orderNo %s] %s\n", orderNo, resBuf);
+        if(send(serv_fd, toSend, MAX_MSG_LEN, 0) == -1){
+          perror("send");
+        }
+      }
+  }
+}
+
+
+
 
 
 

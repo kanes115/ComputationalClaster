@@ -123,11 +123,13 @@ void sendToClient(char* msg){
 }
 
 int existsClient(char* name){
+  pthread_mutex_lock(&clients_mutex);
   for(int i = 0; i < clientsCounter; i++){
     if(strcmp(clients[i]->name, name) == 0)
       return 1;
   }
   return 0;
+  pthread_mutex_unlock(&clients_mutex);
 }
 //***
 
@@ -160,7 +162,7 @@ void serveDataMsg(int source_fd){
   }
 
   if(type == 'o'){
-    printf("%s\n", buf);
+    printf("[clientId %d] %s\n", source_fd, buf);
     return;
   }
 }
