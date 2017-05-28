@@ -17,6 +17,8 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/time.h>
+#define _GNU_SOURCE         /* See feature_test_macros(7) */
+#include <poll.h>
 
 
 
@@ -33,11 +35,8 @@ int backlog = 5;
 int ordersCounter = 0;
 
 pthread_t p1, p2, p3;
-
-int pingc;
 //klienci
 struct Client* clients[CLIENTS_MAX_NO];
-int clientsCounter = 0;
 pthread_mutex_t clients_mutex = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 //***
 
@@ -59,6 +58,10 @@ void parse(int argc, char* argv[], int* port, char* path){
   *port = atoi(argv[1]);
   strcpy(path, argv[2]);
 }
+
+int streq(char *string1, char *string2) {
+    return strcmp(string1, string2) == 0;
+}
 //***
 
 //cleanUp
@@ -72,12 +75,14 @@ void cleanUp(int signum){
   if(shutdown(net_socket, SHUT_RDWR) == -1){
     printf("Couldn't close\n");
   }
-  for(int i = 0; i < clientsCounter; i++){
-    if(shutdown(clients[i]->sock_fd, SHUT_RDWR) == -1){
-      printf("Couldn't close\n");
-    }
-    if(close(clients[i]->sock_fd) == -1){
-      printf("Couldn't close\n");
+  for(int i = 0; i < CLIENTS_MAX_NO; i++){
+    if(clients[i] != NULL){
+      if(shutdown(clients[i]->sock_fd, SHUT_RDWR) == -1){
+        printf("Couldn't close\n");
+      }
+      if(close(clients[i]->sock_fd) == -1){
+        printf("Couldn't close\n");
+      }
     }
   }
   if(close(local_socket) == -1){
@@ -140,44 +145,78 @@ int prepareSocket(int sockType){
 //***
 
 
+void send_msg(int client, char *msg) {
+    char message[MAX_MSG_LEN];
+    sprintf(message, "%s", msg);
+    send(client, message, MAX_MSG_LEN, 0);
+}
+
 
 
 //Client menaging
 void addClient(struct Client* cl){
-  clients[clientsCounter++] = cl;
+  struct Client* ptr = clients[0];
+  int i = 0;
+  while(ptr != NULL){
+    i++;
+    ptr = clients[i];
+  }
+  clients[i] = cl;
 }
 
 void sendToClient(char* msg){
-  if(clientsCounter == 0){
-    fprintf(stderr, "%s\n", "No clients!");
+  int cl_no = rand()%CLIENTS_MAX_NO;
+
+  struct Client* ptr = clients[cl_no];
+  if(ptr != NULL){
+    send_msg(ptr->sock_fd, msg);
     return;
   }
-  int cl_no = rand()%clientsCounter;
-
-  if(write(clients[cl_no]->sock_fd, msg, strlen(msg) + 1) == -1){
-    fprintf(stderr, "%s\n", "write...");
+  int i = (cl_no + 1) % CLIENTS_MAX_NO;
+  ptr = clients[i];
+  while(ptr == NULL){
+    i = (i + 1) % CLIENTS_MAX_NO;
+    if(i == cl_no){
+      fprintf(stderr, "%s\n", "No clients!");
+      return;
+    }
+    ptr = clients[i];
   }
+
+  send_msg(ptr->sock_fd, msg);
 }
 
 int existsClient(char* name){
-  for(int i = 0; i < clientsCounter; i++){
-    if(strcmp(clients[i]->name, name) == 0)
+  for(int i = 0; i < CLIENTS_MAX_NO; i++){
+    if(clients[i] != NULL && streq(clients[i]->name, name))
       return 1;
   }
   return 0;
 }
 
-void deleteClient(int id){
-  int i = 0;
-  while(clients[i]->sock_fd != id)
-    i++;
-
-  struct Client* tmp = clients[i];
-  clients[i] = clients[clientsCounter--];
-  free(tmp);
-
+void deleteClientAtInd(int ind){
+  shutdown(clients[ind]->sock_fd, SHUT_RDWR);
+  close(clients[ind]->sock_fd);
+  free(clients[ind]);
+  clients[ind] = NULL;
+  printf("Removing client %d\n", ind);
 }
 //***
+
+
+int update_client_timeout(int client_socket) {
+    //TODO Add mutex
+    for (int client = 0; client < CLIENTS_MAX_NO; ++client) {
+        if (clients[client] != NULL) {
+            if (clients[client]->sock_fd == client_socket) {
+                clients[client]->last_response = time(NULL);
+                return 0;
+            }
+        }
+    }
+    return -1;
+}
+
 
 
 
@@ -187,7 +226,7 @@ void serveDataMsg(int source_fd){
 
   read(source_fd, buf, MAX_MSG_LEN);
 
-  printf("Got message: %s\n", buf);
+  //printf("Got message: %s\n", buf);
 
   int type = buf[0];
   buf += 2;
@@ -201,6 +240,7 @@ void serveDataMsg(int source_fd){
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
       strcpy(cl->name, buf);
+      cl->last_response = time(NULL);
       addClient(cl);
       char* buff = malloc(MAX_MSG_LEN);
       sprintf(buff, "r:0");
@@ -215,7 +255,7 @@ void serveDataMsg(int source_fd){
     return;
   }
   if(type == PING){
-    pingc--;
+    update_client_timeout(source_fd);
   }
 }
 
@@ -223,31 +263,24 @@ void serveDataMsg(int source_fd){
 
 
 //main ping body
-void sendPingMsg(int sock){
-  char* buf = malloc(1);
-  buf[0] = PING;
-  send(sock, buf, 1, 0);
 
-
-}
-
-void* pingThem(){
-  while(1){
-    sleep(5);
-    pingc = 0;
-    char tmpBuffer[2];
-    for(int i = 0; i < clientsCounter; i++){
-      pingc++;
-      printf("pinging...\n");
-      int counter = 0;
-      while(pingc != 0 && counter < 5){
-        sleep(1);
-        counter++;
-      }
+void* sendPingMsg(){
+    while (1){
+        for(int i = 0; i < CLIENTS_MAX_NO; ++i) {
+            if (clients[i] != NULL) {
+                char buf[2];
+                sprintf(buf, "%c", PING);
+                send_msg(clients[i]->sock_fd, buf);
+                if (time(NULL) - clients[i]->last_response >= CONNECTION_TIMEOUT) {
+                    deleteClientAtInd(i);
+                }
+            }
+        }
+        sleep(PING_INTERVAL);
     }
-  }
-  return NULL;
+    return NULL;
 }
+
 //***
 
 
@@ -379,7 +412,7 @@ int main(int argc, char* argv[]) {
 
   pthread_create(&p1, NULL, (void*) listenOnSockets, NULL);
   pthread_create(&p2, NULL, (void*) opsIn, NULL);
-  pthread_create(&p3, NULL, (void*) pingThem, NULL);
+  pthread_create(&p3, NULL, (void*) sendPingMsg, NULL);
 
   while(1){}
 

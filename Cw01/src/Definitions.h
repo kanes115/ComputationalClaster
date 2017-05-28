@@ -15,15 +15,21 @@
 #define OP_MSG_LEN 10
 
 //types of messages
-#define PING 5
+#define PING 'p'
 #define REGISTER 1
 #define REGISTER_OK 1
 #define REGISTER_TAKEN 2
 #define OP 3
 
+
+#define CONNECTION_TIMEOUT 15
+#define PING_INTERVAL 5
+
+
 struct Client{
   int sock_fd;
   char name[CLIENTS_MAX_NAMELEN];
+  time_t last_response;
 };
 
 struct Operation{

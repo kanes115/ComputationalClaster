@@ -62,6 +62,15 @@ int streq(char *string1, char *string2) {
 
 //***
 
+
+void send_msg(int client, char *msg) {
+    char message[MAX_MSG_LEN];
+    sprintf(message, "%s", msg);
+    send(client, message, MAX_MSG_LEN, 0);
+}
+
+
+
 //Preparing socket
 int prepareSocket(int sockType){
 
@@ -103,16 +112,11 @@ int prepareSocket(int sockType){
 //***
 
 //messages
-void sendPingMsg(){
-  char* buf = malloc(1);
-  buf[0] = PING;
-  send(serv_fd, buf, 1, 0);
-}
 
 void sendRegisterMsg(){
   char* buf = malloc(MAX_MSG_LEN);
   sprintf(buf, "r:%s", name);
-  printf("Sending my name in msg: %s (length = %d)\n", buf, strlen(buf) + 1);
+  printf("Sending my name in msg: %s (length = %ld)\n", buf, strlen(buf) + 1);
   if(send(serv_fd, buf, strlen(buf) + 1, 0) == -1){
     perror("send");
     exit(1);
@@ -179,7 +183,9 @@ void run(){
       printf("%s\n", resp);
       if(resp[0] == PING){ //ping
         printf("Pinged\n");
-        sendPingMsg();
+        char buftmp[2];
+        sprintf(buftmp, "%c", PING);
+        send_msg(serv_fd, buftmp);
         continue;
       }
       if(resp[0] == 'o'){
