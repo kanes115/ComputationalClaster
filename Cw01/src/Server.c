@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/time.h>
 
 
 
@@ -32,6 +33,8 @@ int backlog = 5;
 int ordersCounter = 0;
 
 pthread_t p1, p2, p3;
+
+int pingc;
 //klienci
 struct Client* clients[CLIENTS_MAX_NO];
 int clientsCounter = 0;
@@ -207,10 +210,12 @@ void serveDataMsg(int source_fd){
     }
     return;
   }
-
   if(type == 'o'){
     printf("[clientId %d] %s\n", source_fd, buf);
     return;
+  }
+  if(type == PING){
+    pingc--;
   }
 }
 
@@ -227,9 +232,21 @@ void sendPingMsg(int sock){
 }
 
 void* pingThem(){
-  for(int i = 0; i < clientsCounter; i++){
-    sendPingMsg(clients[i]->sock_fd);
+  while(1){
+    sleep(5);
+    pingc = 0;
+    char tmpBuffer[2];
+    for(int i = 0; i < clientsCounter; i++){
+      pingc++;
+      printf("pinging...\n");
+      int counter = 0;
+      while(pingc != 0 && counter < 5){
+        sleep(1);
+        counter++;
+      }
+    }
   }
+  return NULL;
 }
 //***
 
@@ -362,6 +379,7 @@ int main(int argc, char* argv[]) {
 
   pthread_create(&p1, NULL, (void*) listenOnSockets, NULL);
   pthread_create(&p2, NULL, (void*) opsIn, NULL);
+  pthread_create(&p3, NULL, (void*) pingThem, NULL);
 
   while(1){}
 
