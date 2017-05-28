@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <signal.h>
+#include <ctype.h>
 
 
 
@@ -58,6 +59,13 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
 
 int streq(char *string1, char *string2) {
     return strcmp(string1, string2) == 0;
+}
+
+int numbers_only(const char *s){
+    while (*s) {
+        if (isdigit(*s++) == 0) return 0;
+    }
+    return 1;
 }
 
 //***
@@ -139,12 +147,18 @@ void sendRegisterMsg(){
 
 //***
 
-void calculate(char* expr, char* buf){
+int calculate(char* expr, char* buf){
+  if(strlen(expr) < 5)
+  return -1;
   char* tmpexpr = malloc(strlen(expr) + 1);
   strcpy(tmpexpr, expr);
   char* arg1 = strtok(tmpexpr, " ");
   char* op = strtok(NULL, " ");
   char* arg2 = strtok(NULL, " ");
+
+  if(!numbers_only(arg1) || !numbers_only(arg2)){
+    return -1;
+  }
 
 
   int arg1i = atoi(arg1);
@@ -164,10 +178,11 @@ void calculate(char* expr, char* buf){
     resi = arg1i / arg2i;
   }else{
     fprintf(stderr, "%s\n", "Unknown");
-    exit(-1);
+    return -1;
   }
 
   sprintf(buf, "%s = %d", expr, resi);
+  return 0;
 
 }
 
@@ -193,12 +208,18 @@ void run(){
         char* calcText = strtok(resp, ":");
         char* orderNo = strtok(NULL, ":");
         char resBuf[MAX_MSG_LEN];
-        calculate(calcText, resBuf);
+        if(calculate(calcText, resBuf) == -1){
+          fprintf(stderr, "Unknown query\n");
+          continue;
+        }
         char toSend[MAX_MSG_LEN];
         sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
         if(send(serv_fd, toSend, MAX_MSG_LEN, 0) == -1){
           perror("send");
         }
+      }
+      else{
+        printf("Got unknown: %s\n", resp);
       }
     }
   }

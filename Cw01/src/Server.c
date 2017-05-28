@@ -145,10 +145,13 @@ int prepareSocket(int sockType){
 //***
 
 
-void send_msg(int client, char *msg) {
+int send_msg(int client, char *msg) {
     char message[MAX_MSG_LEN];
     sprintf(message, "%s", msg);
-    send(client, message, MAX_MSG_LEN, 0);
+    if(send(client, message, MAX_MSG_LEN, 0) == -1){
+      return -1;
+    }
+    return 0;
 }
 
 
@@ -169,7 +172,9 @@ void sendToClient(char* msg){
 
   struct Client* ptr = clients[cl_no];
   if(ptr != NULL){
-    send_msg(ptr->sock_fd, msg);
+    if(send_msg(ptr->sock_fd, msg) == -1){
+      printf("This socket is closed. Will be removed by piinger.");
+    }
     return;
   }
   int i = (cl_no + 1) % CLIENTS_MAX_NO;
@@ -183,7 +188,9 @@ void sendToClient(char* msg){
     ptr = clients[i];
   }
 
-  send_msg(ptr->sock_fd, msg);
+  if(send_msg(ptr->sock_fd, msg) == -1){
+    printf("This socket is closed. Will be removed by piinger.");
+  }
 }
 
 int existsClient(char* name){
