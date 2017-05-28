@@ -30,7 +30,7 @@ char* calcResult;
 
 //Parse
 void showUsageClose(){
-  fprintf(stderr, "%s\n", "Usage:\n./Client <name> <local|net> <ipv4|path>");
+  fprintf(stderr, "%s\n", "Usage:\n./Client <name> <local|net> <ipv4|path> <port (if net)>");
   exit(-1);
 }
 
@@ -50,7 +50,7 @@ void parse(int argc, char* argv[], char* name, int* communicationWay, char* addr
   strcpy(address, argv[3]);
 
   if(*communicationWay == AF_INET)
-    port = argv[4];
+    strcpy(port, argv[4]);
   else
     port = "-1";
 }
@@ -72,12 +72,12 @@ int prepareSocket(int sockType){
         address.ai_socktype = SOCK_STREAM;
         getaddrinfo(char_address, port, &address, &res);
         if ((server_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
-            perror("Socket");
+            perror("net socket");
             return -1;
         }
-        if (connect(server_socket, res->ai_addr, res->ai_addrlen) < 0) {
+        if (connect(server_socket, res->ai_addr, res->ai_addrlen) == -1) {
             close(server_socket);
-            perror("Connection");
+            perror("net connection");
             return -1;
         }
     } else if (communicationWay == AF_LOCAL) {
@@ -86,12 +86,12 @@ int prepareSocket(int sockType){
         address.sun_family = AF_UNIX;
         strcpy(address.sun_path, char_address);
         if ((server_socket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-            perror("Socket");
+            perror("local socket");
             return -1;
         }
-        if (connect(server_socket, (const struct sockaddr *) &address, sizeof(address)) < 0) {
+        if (connect(server_socket, (const struct sockaddr *) &address, sizeof(address)) == -1) {
             close(server_socket);
-            perror("Connection");
+            perror("local connection");
             return -1;
         }
     } else {
@@ -119,9 +119,9 @@ void sendRegisterMsg(){
   char* resp = malloc(MAX_MSG_LEN);
 
   while(1){
-    printf("ss\n");
     if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
-      if(strcmp(resp, "r:1") == 0){
+      printf("%s\n", resp);
+      if(streq(resp, "r:1")){
         printf("This name is taken\n");
         exit(1);
       }else
@@ -145,6 +145,10 @@ void sendResultMsg(char* result){
 int main(int argc, char* argv[]){
   parse(argc, argv, name, &communicationWay, char_address, port);
   serv_fd = prepareSocket(communicationWay);
+  if(serv_fd == -1)
+    return -1;
 
   sendRegisterMsg();
+
+  while(1){}
 }
