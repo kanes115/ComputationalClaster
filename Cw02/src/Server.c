@@ -207,7 +207,7 @@ void sendToClient(char* msg){
 
   struct Client* ptr = clients[cl_no];
   if(ptr != NULL){
-    if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
+    if(send_msg(ptr, CALC_EXPR, orderCounter++, msg) == -1){
       printf("This socket is closed. Will be removed by piinger.");
       return;
     }
@@ -225,7 +225,7 @@ void sendToClient(char* msg){
     ptr = clients[i];
   }
 
-  if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
+  if(send_msg(ptr, CALC_EXPR, orderCounter++, msg) == -1){
     printf("This socket is closed. Will be removed by piinger.");
     return;
   }
@@ -277,9 +277,11 @@ void serveDataMsg(int source_fd){
   struct sockaddr addr;
   struct Message msg_in, msgin_d;
   struct Client sender;
-  socklen_t len;
+  socklen_t len = sizeof(addr);
 
-  recvfrom(source_fd, &msg_in, sizeof msg_in, MSG_WAITALL, &addr, &len);
+  if(recvfrom(source_fd, &msg_in, sizeof msg_in, MSG_WAITALL, &addr, &len) == -1){
+    perror("recvfrom");
+  }
 
   decode_msg(msg_in, &msgin_d);
 
@@ -349,7 +351,7 @@ void* opsIn(){
     if( str[ i ] == '\n')
       str[i] = '\0';
 
-    sprintf(buf, "o:%s:%d", str, ordersCounter++);
+    sprintf(buf, "%s", str);
     sendToClient(buf);
   }
 

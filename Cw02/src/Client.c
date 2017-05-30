@@ -81,7 +81,8 @@ int send_msg(int socket, int type, int orderNo, char* expr) {
     struct Message msg;
     msg.type = htonl(type);
     msg.orderNo = htonl(orderNo);
-    strcpy(msg.expr, expr);
+    if(expr != NULL)
+      strcpy(msg.expr, expr);
     write(socket, &msg, sizeof msg);
     return 0;
 }
@@ -209,7 +210,7 @@ void run(){
         send_msg(serv_fd, PING, -1, NULL);
         continue;
       }
-      if(respd.type == OP){
+      if(respd.type == CALC_EXPR){
         char* calcText = strtok(respd.expr, ":");
         char* orderNo = strtok(NULL, ":");
         char resBuf[MAX_MSG_LEN];
@@ -224,7 +225,7 @@ void run(){
         }
       }
       else{
-        printf("Got unknown\n");
+        printf("Got unknown type: %d\n", respd.type);
       }
     }
   }
