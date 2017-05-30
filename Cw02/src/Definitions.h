@@ -19,7 +19,6 @@
 #define REGISTER 1
 #define REGISTER_OK 1
 #define REGISTER_TAKEN 2
-#define OP 3
 #define CALC_EXPR 5
 
 

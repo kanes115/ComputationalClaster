@@ -171,7 +171,7 @@ int prepareWebSocket(int port) {
 
 
 int send_msg(struct Client* cl, int type, int orderNo, char* expr) {
-    printf("sending: cl->sock_fd = %d, type = %d, orderNo = %d, expr = %s\n", cl->sock_fd, type, orderNo, expr);
+    // printf("sending: cl->sock_fd = %d, type = %d, orderNo = %d, expr = %s\n", cl->sock_fd, type, orderNo, expr);
     struct Message msg;
     msg.type = htonl(type);
     msg.orderNo = htonl(orderNo);
@@ -207,11 +207,10 @@ void sendToClient(char* msg){
 
   struct Client* ptr = clients[cl_no];
   if(ptr != NULL){
-    if(send_msg(ptr, CALC_EXPR, orderCounter++, msg) == -1){
+    if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
       printf("This socket is closed. Will be removed by piinger.");
       return;
     }
-    orderCounter++;
     return;
   }
   int i = (cl_no + 1) % CLIENTS_MAX_NO;
@@ -225,12 +224,10 @@ void sendToClient(char* msg){
     ptr = clients[i];
   }
 
-  if(send_msg(ptr, CALC_EXPR, orderCounter++, msg) == -1){
+  if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
     printf("This socket is closed. Will be removed by piinger.");
     return;
   }
-
-  orderCounter++;
 }
 
 int existsClient(char* name){
@@ -286,7 +283,6 @@ void serveDataMsg(int source_fd){
   decode_msg(msg_in, &msgin_d);
 
   int type = msgin_d.type;
-  printf("Msg type: %d, expr: %s\n", type, msgin_d.expr);
 
   sender.sock_fd = source_fd;
   sender.addr = addr;
@@ -307,8 +303,9 @@ void serveDataMsg(int source_fd){
     }
     return;
   }
-  if(type == OP){
+  if(type == CALC_EXPR){
     printf("[clientId %d] %s\n", source_fd, msgin_d.expr);
+    orderCounter++;
     return;
   }
   if(type == PING){
@@ -377,7 +374,6 @@ void* listenOnSockets(){
   epoll_ctl(EFD, EPOLL_CTL_ADD, local_socket, &event);
 
   while (1){
-    printf("aaaaaaaaa!\n");
       epoll_wait(EFD, &event, 1, -1);
        if ((event.events & EPOLLERR) || (event.events & EPOLLHUP) || (!(event.events & EPOLLIN))){
           fprintf (stderr, "this file descriptor is already closed on the other side\n");
@@ -385,7 +381,6 @@ void* listenOnSockets(){
           continue;
         }
         else{
-          printf("Message!\n");
           serveDataMsg(event.data.fd);
       }
   }

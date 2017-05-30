@@ -211,16 +211,14 @@ void run(){
         continue;
       }
       if(respd.type == CALC_EXPR){
-        char* calcText = strtok(respd.expr, ":");
-        char* orderNo = strtok(NULL, ":");
         char resBuf[MAX_MSG_LEN];
-        if(calculate(calcText, resBuf) == -1){
+        if(calculate(respd.expr, resBuf) == -1){
           fprintf(stderr, "Unknown query\n");
           continue;
         }
         char toSend[MAX_MSG_LEN];
-        sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
-        if(send_msg(serv_fd, OP, respd.orderNo, toSend) == -1){
+        sprintf(toSend, "[orderNo %d] %s\n", respd.orderNo, resBuf);
+        if(send_msg(serv_fd, CALC_EXPR, respd.orderNo, toSend) == -1){
           perror("send");
         }
       }
