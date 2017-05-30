@@ -108,7 +108,8 @@ int prepareSocket(int sockType){
         perror("Error, wrong IP");
         exit(-1);
       }
-      addr.sin_port = atoi(port);
+      //addr.sin_addr.s_addr = INADDR_ANY;
+      addr.sin_port = htons(atoi(port));
       if(connect(server_socket, (struct sockaddr *)&addr, sizeof(addr))){
         perror("Error");
         exit(-1);
