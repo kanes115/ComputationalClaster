@@ -1,3 +1,4 @@
+#define _BSD_SOURCE
 #define  _XOPEN_SOURCE 600
 #include <string.h>
 #include <sys/socket.h>
@@ -19,6 +20,10 @@
 #include <sys/time.h>
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 #include <poll.h>
+#include <sys/socket.h>
+       #include <netinet/in.h>
+       #include <arpa/inet.h>
+
 
 
 
@@ -98,6 +103,7 @@ void cleanUp(int signum){
 //******************
 
 //preparation
+
 static int make_socket_non_blocking(int sfd){
   int flags, s;
 
@@ -117,24 +123,21 @@ static int make_socket_non_blocking(int sfd){
   return 0;
 }
 
+
+
+
 int prepareUnixSocket(char *path) {
     int unix_socket;
-    struct sockaddr_un address;
-    memset(&address, 0, sizeof(address));
-    address.sun_family = AF_UNIX;
-    strcpy(address.sun_path, path);
-    if ((unix_socket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        perror("Unix socket");
-        return -1;
-    }
-    if ((bind(unix_socket, (const struct sockaddr *) &address, sizeof(address))) < 0) {
-        close(unix_socket);
-        perror("Unix socket bind");
-        return -1;
-    }
-    if ((listen(unix_socket, 5)) < 0) {
-        perror("Unix socket listen");
-        return -1;
+    unix_socket = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+    struct sockaddr_un UNIX_addr;
+    UNIX_addr.sun_family = AF_UNIX;
+    strcpy(UNIX_addr.sun_path, path);
+
+
+    if(bind(unix_socket, (struct sockaddr *)&UNIX_addr, sizeof(UNIX_addr))){
+      perror("Error binding");
+      exit(-1);
     }
     if ((make_socket_non_blocking(unix_socket)) < 0) {
         perror("Unix socket make non blocking");
@@ -143,29 +146,21 @@ int prepareUnixSocket(char *path) {
     return unix_socket;
 }
 
-int prepareWebSocket(char *port) {
+int prepareWebSocket(int port) {
     int web_socket;
-    struct addrinfo name, *res;
-    memset(&name, 0, sizeof(name));
-    name.ai_family = AF_UNSPEC;
-    name.ai_socktype = SOCK_STREAM;
-    name.ai_flags = AI_PASSIVE;
-    getaddrinfo(NULL, port, &name, &res);
-    if ((web_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
-        perror("Web socket");
-        return -1;
-    }
-    if ((bind(web_socket, res->ai_addr, res->ai_addrlen)) < 0) {
-        close(web_socket);
-        perror("Web socket bind");
-        return -1;
-    }
-    if ((listen(web_socket, 5)) < 0) {
-        perror("Web socket listen");
-        return -1;
+    web_socket = socket(AF_INET, SOCK_DGRAM, 0);
+
+    struct sockaddr_in IP_addr;
+    IP_addr.sin_family = AF_INET;
+    IP_addr.sin_port = htons(port);
+    IP_addr.sin_addr.s_addr = INADDR_ANY;
+
+    if(bind(web_socket, (struct sockaddr *)&IP_addr, sizeof(IP_addr))){
+      perror("Error binding");
+      exit(-1);
     }
     if ((make_socket_non_blocking(web_socket)) < 0) {
-        perror("Web socket make non blocking");
+        perror("Unix socket make non blocking");
         return -1;
     }
     return web_socket;
@@ -173,15 +168,27 @@ int prepareWebSocket(char *port) {
 //******************
 
 
-int send_msg(int client, char *msg) {
-    char message[MAX_MSG_LEN];
-    sprintf(message, "%s", msg);
-    if(send(client, message, MAX_MSG_LEN, 0) == -1){
+
+
+int send_msg(struct Client* cl, int type, int orderNo, char* expr) {
+    printf("sending: cl->sock_fd = %d, type = %d, orderNo = %d, expr = %s\n", cl->sock_fd, type, orderNo, expr);
+    struct Message msg;
+    msg.type = htonl(type);
+    msg.orderNo = htonl(orderNo);
+    if(!(expr == NULL))
+      strcpy(msg.expr, expr);
+    if(sendto(cl->sock_fd, &msg, sizeof(msg), MSG_NOSIGNAL, &(cl->addr), cl->len) == -1){
+      perror("Send");
       return -1;
     }
     return 0;
 }
 
+void decode_msg(struct Message orig, struct Message* out){
+  out->type = ntohl(orig.type);
+  out->orderNo = ntohl(orig.orderNo);
+  strcpy(out->expr, orig.expr);
+}
 
 
 //Client menaging
@@ -200,9 +207,11 @@ void sendToClient(char* msg){
 
   struct Client* ptr = clients[cl_no];
   if(ptr != NULL){
-    if(send_msg(ptr->sock_fd, msg) == -1){
+    if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
       printf("This socket is closed. Will be removed by piinger.");
+      return;
     }
+    orderCounter++;
     return;
   }
   int i = (cl_no + 1) % CLIENTS_MAX_NO;
@@ -216,9 +225,12 @@ void sendToClient(char* msg){
     ptr = clients[i];
   }
 
-  if(send_msg(ptr->sock_fd, msg) == -1){
+  if(send_msg(ptr, CALC_EXPR, orderCounter, msg) == -1){
     printf("This socket is closed. Will be removed by piinger.");
+    return;
   }
+
+  orderCounter++;
 }
 
 int existsClient(char* name){
@@ -235,6 +247,14 @@ void deleteClientAtInd(int ind){
   free(clients[ind]);
   clients[ind] = NULL;
   printf("Removing client %d\n", ind);
+}
+
+struct Client* findClient(int socketid){
+  for(int i = 0; i < CLIENTS_MAX_NO; i++){
+    if(clients[i] != NULL && clients[i]->sock_fd == socketid)
+      return clients[i];
+  }
+  return NULL;
 }
 //******************
 
@@ -254,36 +274,39 @@ int update_client_timeout(int client_socket) {
 }
 
 void serveDataMsg(int source_fd){
-  char* buf = malloc(MAX_MSG_LEN);
+  struct sockaddr addr;
+  struct Message msg_in, msgin_d;
+  struct Client sender;
+  socklen_t len;
 
-  read(source_fd, buf, MAX_MSG_LEN);
+  recvfrom(source_fd, &msg_in, sizeof msg_in, MSG_WAITALL, &addr, &len);
 
-  //printf("Got message: %s\n", buf);
+  decode_msg(msg_in, &msgin_d);
 
-  int type = buf[0];
-  buf += 2;
+  int type = msgin_d.type;
+  printf("Msg type: %d, expr: %s\n", type, msgin_d.expr);
 
-  if(type == 'r'){    //type register
-    if(existsClient(buf)){
-      char* buff = malloc(MAX_MSG_LEN);
-      sprintf(buff, "r:1");
-      send_msg(source_fd, buff);
+  sender.sock_fd = source_fd;
+  sender.addr = addr;
+  sender.len = len;
+
+  if(type == REGISTER){    //type register
+    if(existsClient(msgin_d.expr)){
+      send_msg(&sender, REGISTER_TAKEN, -1, NULL);
     }else{
       struct Client *cl = malloc(sizeof(struct Client));
       cl->sock_fd = source_fd;
-      strcpy(cl->name, buf);
+      strcpy(cl->name, msgin_d.expr);
       cl->last_response = time(NULL);
+      cl->addr = addr;
+      cl->len = len;
       addClient(cl);
-      char* buff = malloc(MAX_MSG_LEN);
-      sprintf(buff, "r:0");
-      if(send_msg(source_fd, buff) == -1){
-        perror("send");
-      }
+      send_msg(cl, REGISTER_OK, -1, NULL);
     }
     return;
   }
-  if(type == 'o'){
-    printf("[clientId %d] %s\n", source_fd, buf);
+  if(type == OP){
+    printf("[clientId %d] %s\n", source_fd, msgin_d.expr);
     return;
   }
   if(type == PING){
@@ -301,7 +324,7 @@ void* sendPingMsg(){
             if (clients[i] != NULL) {
                 char buf[2];
                 sprintf(buf, "%c", PING);
-                send_msg(clients[i]->sock_fd, buf);
+                send_msg(clients[i], PING, -1, NULL);
                 if (time(NULL) - clients[i]->last_response >= CONNECTION_TIMEOUT) {
                     deleteClientAtInd(i);
                 }
@@ -339,88 +362,30 @@ void* opsIn(){
 void* listenOnSockets(){
 
   int EFD;
+
+  epoll_data_t fd_new;
   struct epoll_event event;
-  struct epoll_event *events;
-
-  listen(net_socket, backlog);
-  listen(local_socket, backlog);
-
-  EFD = epoll_create1(0);
-
-  event.data.fd = net_socket;
   event.events = EPOLLIN | EPOLLET;
-  epoll_ctl (EFD, EPOLL_CTL_ADD, net_socket, &event);
-  event.data.fd = local_socket;
-  epoll_ctl (EFD, EPOLL_CTL_ADD, local_socket, &event); //my
-
-  /* Buffer where events are returned */
-  events = calloc (EVENTS_MAX_AMOUNT, sizeof event);
+  EFD = epoll_create1(0);
+  fd_new.fd = net_socket;
+  event.data = fd_new;
+  epoll_ctl(EFD, EPOLL_CTL_ADD, net_socket, &event);
+  fd_new.fd = local_socket;
+  event.data = fd_new;
+  epoll_ctl(EFD, EPOLL_CTL_ADD, local_socket, &event);
 
   while (1){
-      int n;
-
-      n = epoll_wait (EFD, events, EVENTS_MAX_AMOUNT, -1);
-      for (int i = 0; i < n; i++){
-	       if ((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP) || (!(events[i].events & EPOLLIN))){
-            //Simply error - the other end closed
-	          fprintf (stderr, "this file descriptor is already closed on the other side\n");
-	          close(events[i].data.fd);
-            //deleteClient(events[i].data.fd);
-	          continue;
-          }
-	        if(net_socket == events[i].data.fd || local_socket == events[i].data.fd){
-            int curr_sock = events[i].data.fd;
-              /* We have a notification on the listening socket, which
-                 means one or more incoming connections. */
-              while (1){
-                  struct sockaddr in_addr;
-                  socklen_t in_len;
-                  int infd;
-
-                  in_len = sizeof in_addr;
-                  infd = accept (curr_sock, &in_addr, &in_len);
-
-                  if (infd == -1){
-                      if ((errno == EAGAIN) || (errno == EWOULDBLOCK)){
-                          /* We have processed all incoming
-                             connections. */
-                          break;
-                      }
-                      else{
-                          perror ("accept");
-                          break;
-                        }
-                  }
-
-                  /* Make the incoming socket non-blocking and add it to the
-                     list of fds to monitor. */
-                  if(make_socket_non_blocking(infd) == -1){
-                    abort ();
-                  }
-
-                  event.data.fd = infd;
-                  event.events = EPOLLIN | EPOLLET;
-                  if(epoll_ctl (EFD, EPOLL_CTL_ADD, infd, &event) == -1){
-                      perror ("epoll_ctl");
-                      abort ();
-                  }
-              }
-              continue;
-          }
-          else{
-              /* We have data on the fd waiting to be read. Read and
-                 display it. We must read whatever data is available
-                 completely, as we are running in edge-triggered mode
-                 and won't get a notification again for the same
-                 data. */
-                 serveDataMsg(events[i].data.fd);
-
+    printf("aaaaaaaaa!\n");
+      epoll_wait(EFD, &event, 1, -1);
+       if ((event.events & EPOLLERR) || (event.events & EPOLLHUP) || (!(event.events & EPOLLIN))){
+          fprintf (stderr, "this file descriptor is already closed on the other side\n");
+          close(event.data.fd);
+          continue;
         }
-    }
-
-    //free (events);
-    //close (net_socket);
-    //close (local_socket);
+        else{
+          printf("Message!\n");
+          serveDataMsg(event.data.fd);
+      }
   }
 }
 //******************
@@ -429,16 +394,18 @@ int main(int argc, char* argv[]) {
   srand(time(NULL));
   parse(argc, argv, &port, path);
 
-  char portbuf[7];
-  sprintf(portbuf, "%d", port);
-  net_socket = prepareWebSocket(portbuf);
+  net_socket = prepareWebSocket(port);
   local_socket = prepareUnixSocket(path);
   if(net_socket == -1 || local_socket == -1)
     exit(-1);
-  make_socket_non_blocking(net_socket);
-  make_socket_non_blocking(local_socket);
 
   signal(SIGINT, cleanUp);
+
+  char hostname[250];
+  gethostname(hostname, 250);
+  struct hostent*  info= gethostbyname(hostname);
+  printf("Server started:\n");
+  printf("IP: %s, PORT: %d\n", inet_ntoa(*(struct in_addr*)(info->h_addr_list)), port);
 
 
   pthread_create(&p1, NULL, (void*) listenOnSockets, NULL);

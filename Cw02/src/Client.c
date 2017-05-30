@@ -1,4 +1,5 @@
 #define  _XOPEN_SOURCE 600
+#define _BSD_SOURCE
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -12,8 +13,9 @@
 #include <unistd.h>
 #include <signal.h>
 #include <ctype.h>
-
-
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "Definitions.h"
 
@@ -75,50 +77,51 @@ int numbers_only(const char *s){
 //***
 
 
-int send_msg(int client, char *msg) {
-    char message[MAX_MSG_LEN];
-    sprintf(message, "%s", msg);
-    if(send(client, message, MAX_MSG_LEN, 0) == -1){
-      return -1;
-    }
+int send_msg(int socket, int type, int orderNo, char* expr) {
+    struct Message msg;
+    msg.type = htonl(type);
+    msg.orderNo = htonl(orderNo);
+    strcpy(msg.expr, expr);
+    write(socket, &msg, sizeof msg);
     return 0;
+}
+
+void decode_msg(struct Message orig, struct Message* out){
+  out->type = ntohl(orig.type);
+  out->orderNo = ntohl(orig.orderNo);
+  strcpy(out->expr, orig.expr);
 }
 
 
 
 //Preparing socket
 int prepareSocket(int sockType){
-
   int server_socket;
+  printf("port: %d\n", atoi(port));
+
     if (communicationWay == AF_INET) {
-        struct addrinfo address, *res;
-        memset(&address, 0, sizeof(address));
-        address.ai_family = AF_UNSPEC;    //INET?
-        address.ai_socktype = SOCK_STREAM;
-        getaddrinfo(char_address, port, &address, &res);
-        if ((server_socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
-            perror("net socket");
-            return -1;
-        }
-        if (connect(server_socket, res->ai_addr, res->ai_addrlen) == -1) {
-            close(server_socket);
-            perror("net connection");
-            return -1;
-        }
+      server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+      struct sockaddr_in addr;
+      addr.sin_family = AF_INET;
+      if(!inet_aton(char_address, &addr.sin_addr)){
+        perror("Error, wrong IP");
+        exit(-1);
+      }
+      addr.sin_port = atoi(port);
+      if(connect(server_socket, (struct sockaddr *)&addr, sizeof(addr))){
+        perror("Error");
+        exit(-1);
+      }
     } else if (communicationWay == AF_LOCAL) {
-        struct sockaddr_un address;
-        memset(&address, 0, sizeof(address));
-        address.sun_family = AF_UNIX;
-        strcpy(address.sun_path, char_address);
-        if ((server_socket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-            perror("local socket");
-            return -1;
-        }
-        if (connect(server_socket, (const struct sockaddr *) &address, sizeof(address)) == -1) {
-            close(server_socket);
-            perror("local connection");
-            return -1;
-        }
+      server_socket = socket(AF_UNIX, SOCK_DGRAM, 0);
+      struct sockaddr_un addr;
+      addr.sun_family = AF_UNIX;
+      strcpy(addr.sun_path, char_address);
+      bind(server_socket, (struct sockaddr *)&addr, sizeof(sa_family_t));
+      if(connect(server_socket, (struct sockaddr *)&addr, sizeof(addr))){
+        perror("Error");
+        exit(-1);
+      }
     } else {
         server_socket = -1;
     }
@@ -129,21 +132,22 @@ int prepareSocket(int sockType){
 //Registers client in server
 void sendRegisterMsg(){
   char* buf = malloc(MAX_MSG_LEN);
-  sprintf(buf, "r:%s", name);
-  printf("Sending my name in msg: %s (length = %ld)\n", buf, strlen(buf) + 1);
-  if(send_msg(serv_fd, buf) == -1){
+  sprintf(buf, "%s", name);
+  if(send_msg(serv_fd, REGISTER, -1, buf) == -1){
     perror("send");
     exit(1);
   }
 
-  char* resp = malloc(MAX_MSG_LEN);
+  struct Message msg;
 
   while(1){
-    if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
-      if(streq(resp, "r:1")){
+    if(recv(serv_fd, &msg, sizeof msg, 0)){
+      struct Message msgd;
+      decode_msg(msg, &msgd);
+      if(msgd.type == REGISTER_TAKEN){
         printf("This name is taken\n");
         exit(1);
-      }else if(streq(resp, "r:0")){
+      }else if(msgd.type == REGISTER_OK){
         printf("Got registered!\n");
         return;
       }
@@ -196,19 +200,17 @@ int calculate(char* expr, char* buf){
 void run(){
 
   while(1){
-    char* resp = malloc(MAX_MSG_LEN);
-    if(recv(serv_fd, resp, MAX_MSG_LEN, 0)){
-      printf("%s\n", resp);
-      if(resp[0] == PING){ //ping
+    struct Message resp;
+    if(recv(serv_fd, &resp, sizeof resp, 0)){
+      struct Message respd;
+      decode_msg(resp, &respd);
+      if(respd.type == PING){ //ping
         printf("Pinged\n");
-        char buftmp[2];
-        sprintf(buftmp, "%c", PING);
-        send_msg(serv_fd, buftmp);
+        send_msg(serv_fd, PING, -1, NULL);
         continue;
       }
-      if(resp[0] == 'o'){
-        resp += 2;
-        char* calcText = strtok(resp, ":");
+      if(respd.type == OP){
+        char* calcText = strtok(respd.expr, ":");
         char* orderNo = strtok(NULL, ":");
         char resBuf[MAX_MSG_LEN];
         if(calculate(calcText, resBuf) == -1){
@@ -217,12 +219,12 @@ void run(){
         }
         char toSend[MAX_MSG_LEN];
         sprintf(toSend, "o:[orderNo %s] %s\n", orderNo, resBuf);
-        if(send_msg(serv_fd, toSend) == -1){
+        if(send_msg(serv_fd, OP, respd.orderNo, toSend) == -1){
           perror("send");
         }
       }
       else{
-        printf("Got unknown: %s\n", resp);
+        printf("Got unknown\n");
       }
     }
   }
